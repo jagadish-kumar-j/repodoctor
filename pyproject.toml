@@ -11,6 +11,7 @@ dependencies = [
     "typer",
     "rich",
     "packaging",
+    "pyyaml",
 ]
 
 [project.optional-dependencies]
