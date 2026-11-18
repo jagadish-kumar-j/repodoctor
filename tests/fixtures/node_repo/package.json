@@ -1,0 +1,6 @@
+{
+  "name": "node-repo",
+  "engines": {
+    "node": ">=18"
+  }
+}
