@@ -8,6 +8,7 @@ Never reads or stores .env file VALUES - only variable names.
 
 from __future__ import annotations
 
+import os
 import re
 from pathlib import Path
 
@@ -66,11 +67,12 @@ def _scan_code_for_env_vars(path: Path) -> dict[str, set[str]]:
     if not path.is_dir():
         return used
 
-    for root, dirs, files in path.walk():
+    for root, dirs, files in os.walk(path):
+        # Prune in place so os.walk never descends into skipped folders.
         dirs[:] = [d for d in dirs if d not in SKIP_DIRS]
 
         for fname in files:
-            fpath = root / fname
+            fpath = Path(root) / fname
             if fpath.suffix not in ENV_SOURCE_EXTS:
                 continue
             try:

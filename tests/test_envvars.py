@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import shutil
 from pathlib import Path
 
 from repodoctor.detectors.envvars import detect, compute_results
@@ -9,8 +10,20 @@ from repodoctor.detectors.envvars import detect, compute_results
 FIXTURES = Path(__file__).parent / "fixtures"
 
 
-def test_env_detect_env_repo():
-    result = detect(FIXTURES / "env_repo")
+def _copy_env_repo(tmp_path: Path) -> Path:
+    """Copy the env_repo fixture into tmp_path and write .env at test time.
+
+    The fixture's own .env is never relied upon: we always write a fresh
+    .env with a fake value so the test works whether or not it exists.
+    """
+    dest = tmp_path / "env_repo"
+    shutil.copytree(FIXTURES / "env_repo", dest)
+    (dest / ".env").write_text("DB_URL=fake")
+    return dest
+
+
+def test_env_detect_env_repo(tmp_path):
+    result = detect(_copy_env_repo(tmp_path))
     assert result["documented"] == {"API_KEY", "DB_URL", "OLD_FLAG"}
     assert result["set_keys"] == {"DB_URL"}
     assert "API_KEY" in result["used"]
