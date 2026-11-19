@@ -12,6 +12,7 @@ dependencies = [
     "rich",
     "packaging",
     "pyyaml",
+    "tomli>=2.0; python_version < '3.11'",
 ]
 
 [project.optional-dependencies]

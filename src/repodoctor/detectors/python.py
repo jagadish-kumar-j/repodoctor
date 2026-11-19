@@ -10,8 +10,8 @@ from pathlib import Path
 
 try:
     import tomllib
-except ModuleNotFoundError:  # pragma: no cover - Python < 3.11
-    tomllib = None
+except ModuleNotFoundError:  # Python 3.10
+    import tomli as tomllib
 
 from repodoctor.models import Requirement
 
@@ -28,7 +28,7 @@ def detect(path: Path) -> list[Requirement]:
     found_source: str | None = None
 
     pyproject = path / "pyproject.toml"
-    if pyproject.is_file() and tomllib is not None:
+    if pyproject.is_file():
         try:
             data = tomllib.loads(pyproject.read_text(encoding="utf-8"))
             requires_python = data.get("project", {}).get("requires-python")
