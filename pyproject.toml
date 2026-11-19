@@ -16,6 +16,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+ai = ["httpx"]
 dev = [
     "pytest",
 ]

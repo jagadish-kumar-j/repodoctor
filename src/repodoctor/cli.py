@@ -55,6 +55,90 @@ def check(
 
 
 @app.command()
+def explain(
+    path: str = typer.Argument(".", help="Path to check"),
+    provider: str = typer.Option(
+        "ollama",
+        "--provider",
+        help='AI provider: "ollama" or "openai-compat"',
+    ),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Print the sanitized payload without sending it"),
+):
+    path_obj = Path(path)
+    if not path_obj.exists():
+        from rich.console import Console
+        Console().print(f"[red]Error: Path does not exist: {path}[/red]")
+        raise typer.Exit(code=1)
+
+    if provider not in ("ollama", "openai-compat"):
+        from rich.console import Console
+        Console().print('[red]Error: --provider must be "ollama" or "openai-compat"[/red]')
+        raise typer.Exit(code=1)
+
+    result = run_check(path_obj)
+    if result.ok:
+        print("Nothing to explain: no problems found.")
+        raise typer.Exit(code=0)
+
+    from repodoctor.ai.sanitize import build_payload
+    payload = build_payload(result)
+
+    if dry_run:
+        print(f"Provider: {provider}")
+        print(json.dumps(payload, indent=2, ensure_ascii=False))
+        raise typer.Exit(code=0)
+
+    from repodoctor.ai.provider import OllamaProvider, OpenAICompatProvider, ProviderError
+    answer = None
+    try:
+        ai_provider = OllamaProvider() if provider == "ollama" else OpenAICompatProvider()
+        answer = ai_provider.explain(payload)
+    except ProviderError:
+        pass
+    except Exception:
+        pass
+
+    print("Summary")
+    if answer:
+        from repodoctor.ai.safety import answer_contains_destructive_command, DESTRUCTIVE_WARNING
+        if answer_contains_destructive_command(answer):
+            print(DESTRUCTIVE_WARNING)
+        print(answer)
+    else:
+        print("Summary unavailable: the AI provider could not be reached.")
+
+    from repodoctor.ai.fixes import fixed_fix
+
+    for req in result.requirements:
+        if req.status == "OK" or req.status == "UNKNOWN":
+            continue
+        name = req.required if req.tool == "port" else req.tool
+        template = fixed_fix("port" if req.tool == "port" else "tool", name, req.status)
+        print()
+        print(f"Problem: {req.tool} {req.status}")
+        print(f"What it means: {template['what']}")
+        if "powershell" in template:
+            print(f"Fix (PowerShell): {template['powershell']}")
+            print(f"Fix (bash): {template['bash']}")
+            if "note" in template:
+                print(template["note"])
+
+    for env in result.env:
+        template = fixed_fix("env", env.variable, env.status)
+        print()
+        print(f"Problem: {env.variable} {env.status}")
+        print(f"What it means: {template['what']}")
+        if "powershell" in template:
+            print(f"Fix (PowerShell): {template['powershell']}")
+            print(f"Fix (bash): {template['bash']}")
+            if "note" in template:
+                print(template["note"])
+
+    print("AI-generated summary. Commands are fixed templates, but verify before running.")
+    raise typer.Exit(code=0)
+
+
+@app.command()
 def script(
     path: str = typer.Argument(".", help="Path to check"),
     shell: str = typer.Option(
