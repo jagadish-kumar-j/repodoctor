@@ -13,6 +13,7 @@ repodoctor tells anyone who clones a repo what is missing on their machine to ru
 ## Install
 
 Requires Python 3.10 or newer.
+
 With pipx:
 
 ```bash
@@ -35,7 +36,7 @@ Check the current directory:
 repodoctor check .
 ```
 
-Real output from `repodoctor check tests/fixtures/docker_repo` (port states reflect the machine running it):
+Example output from `repodoctor check ./my-project` (port states reflect the machine running it):
 
 ```
                                       Requirements
@@ -50,17 +51,19 @@ Real output from `repodoctor check tests/fixtures/docker_repo` (port states refl
 +--------------------------------------------------------------------------------------+
 ```
 
+For the HTML report, see the "HTML report" section below.
+
 Get machine-readable JSON:
 
 ```powershell
 repodoctor check . --json
 ```
 
-Real output from `repodoctor check tests/fixtures/env_repo --json`:
+Example output from `repodoctor check ./my-project --json`:
 
 ```json
 {
-  "path": "tests/fixtures/env_repo",
+  "path": "./my-project",
   "ok": false,
   "requirements": [],
   "env": [
@@ -89,7 +92,7 @@ Generate a setup script. It is written to disk (`setup.ps1` on Windows, `setup.s
 repodoctor script . --shell powershell
 ```
 
-Real output from running that command on `tests/fixtures/env_repo`, followed by the generated file:
+Example output from running that command on `./my-project`, followed by the generated file:
 
 ```
 Wrote setup script to setup.ps1
@@ -106,15 +109,50 @@ if (-not (Test-Path .env)) { Copy-Item .env.example .env }
 #   API_KEY
 ```
 
+## HTML report
+
+```powershell
+repodoctor check ./my-project --html report.html
+repodoctor check ./my-project --html report.html --force
+```
+
+The HTML report is one self-contained file. It contains no scripts, external links, external stylesheets, fonts, or images. Values from repository and machine results are HTML-escaped before they appear in the report.
+
+## AI explanations (optional)
+
+Install the optional AI dependency:
+
+```bash
+pip install "repodoctor[ai] @ git+https://github.com/jagadish-kumar-j/repodoctor"
+```
+
+For development:
+
+```bash
+pip install -e ".[ai]"
+```
+
+```bash
+repodoctor explain ./my-project
+repodoctor explain ./my-project --dry-run
+```
+
+Ollama is used with `--provider ollama` (the default). Set `REPODOCTOR_MODEL` to choose the Ollama model; it defaults to `llama3.2`. An OpenAI-compatible service can be used with `--provider openai-compat`, `REPODOCTOR_AI_URL`, `REPODOCTOR_AI_KEY`, and `REPODOCTOR_MODEL`. API keys come only from environment variables.
+
+The AI receives only tool names, required and installed versions, statuses, port numbers, and valid environment variable names matching `^[A-Z][A-Z0-9_]{0,63}$`. It never receives the folder path, file contents, `.env` values, or other repository text. `--dry-run` prints the exact JSON payload and sends nothing.
+
+Fix commands come from fixed templates in the code, not from the model. The model writes only a short summary. Small models can produce weak summaries, and users should still verify template commands before running them. The tool itself never executes a suggested command.
+
 ## What it detects
 
 | Check | Looks at | Example result |
 | --- | --- | --- |
 | Node | `package.json` (`engines.node`), `.nvmrc`, `.node-version` | `node \| >=18 \| v16.0.0 \| VERSION MISMATCH \| package.json` |
-| Python | `pyproject.toml` (`requires-python`), `.python-version`, `requirements.txt` | `python \| >=3.10 \| 3.9.0 \| VERSION MISMATCH \| pyproject.toml` |
+| Python runtime | `pyproject.toml` (`requires-python`), `.python-version`, `requirements.txt` | `python \| >=3.10 \| 3.9.0 \| VERSION MISMATCH \| pyproject.toml` |
+| Python packages | Top-level `requirements.txt` compared with `*.dist-info` folder names in an inside-folder `.venv` or `venv` | `pip: flask \| >=3.0 \| 2.9.0 \| VERSION MISMATCH \| requirements.txt`; `python packages \| 5 of 5 OK` only when no package is `MISSING` or `VERSION MISMATCH` |
 | Docker and compose | `Dockerfile`, `docker-compose.yml`, `docker-compose.yaml`, `compose.yml`, `compose.yaml` | `docker \| - \| - \| MISSING \| Dockerfile, docker-compose.yml` |
 | Ports | Host ports in compose `ports:` entries; `PORT` / `*_PORT` in `.env.example` and `.env.sample` | `port \| 3000 \| free \| OK \| docker-compose.yml` |
-| Environment variables | Keys in `.env.example` / `.env.sample`, set keys in `.env`, and usage in `.py`, `.js`, `.jsx`, `.ts`, `.tsx`, `.mjs` files | `API_KEY \| MISSING \| .env.example` |
+| Environment variables | Keys in `.env.example` / `.env.sample`, set keys in `.env`, and usage in `.py`, `.js`, `.jsx`, `.ts`, `.tsx`, `.mjs`, `.cjs`, `.go`, `.java`, `.rb`, and `.rs` files | `API_KEY \| MISSING \| .env.example` |
 
 ## Exit codes
 
@@ -133,10 +171,11 @@ if (-not (Test-Path .env)) { Copy-Item .env.example .env }
 ## Known limitations
 
 - A port reported as `PORT IN USE` may belong to the project's own service already running, since repodoctor can't tell who is using it.
-- Environment variable detection matches only these patterns: `os.environ["X"]`, `os.environ.get("X")`, `os.getenv("X")`, `process.env.X`, `process.env["X"]`, and `import.meta.env.X`, with UPPER_SNAKE_CASE names. Destructuring such as `const { X } = process.env` is not detected.
+- Environment variable detection recognizes UPPER_SNAKE_CASE names in Python (`os.environ`, `os.environ.get`, `os.getenv`, `os.environ.setdefault`), JavaScript/TypeScript (`process.env`, bracket access, `import.meta.env`, and object destructuring), Go (`os.Getenv`, `os.LookupEnv`), Java (`System.getenv`), Ruby (`ENV`, `ENV.fetch`), and Rust (`env::var`, `std::env::var`).
+- Python package checking only reads top-level `requirements.txt`; it does not read dependencies from `pyproject.toml`. It only searches an inside-folder `.venv` or `venv`, reads `*.dist-info` folder names, and never runs the venv's Python or pip executable. There is no Node package dependency check yet.
 - Docker version is not checked; repodoctor only checks whether Docker is installed, whether it is running, and whether Compose is available.
 - Monorepos are scanned as one folder; there is no per-package analysis.
-- No macOS or Linux testing on real machines beyond CI. CI runs Ubuntu and Windows; local development has been on Windows.
+- Not tested on macOS. CI runs Ubuntu and Windows.
 
 ## Contributing
 

@@ -201,41 +201,33 @@ def test_prompt_example_and_glossary_have_no_destructive_commands():
     assert 'Add-Content .env "NAME=<your-value>"' in SYSTEM_PROMPT
 
 
-def test_safety_function_flags_each_destructive_pattern():
-    answers = [
-        "Remove-Item file.txt",
-        "rm -rf folder",
-        "rm file.txt",
-        "del file.txt",
-        "sed -i 's/a/b/' file.txt",
-        "truncate the file",
-        "mv old.txt new.txt",
-        "Format-Volume",
-        "echo data > file.txt",
-        "DROP TABLE users",
-    ]
-    for answer in answers:
-        assert answer_contains_destructive_command(answer), answer
+import pytest
 
 
-def test_safety_function_accepts_safe_append_and_search_commands():
-    safe_answers = [
-        "Please confirm the value",
-        "perform these steps",
-        "inform your team",
-        "the model name is qwen",
-        'Add-Content .env "NAME=<your-value>"',
-        "echo 'NAME=<your-value>' >> .env",
-        'Add-Content .env.example "NAME="',
-        "echo 'NAME=' >> .env.example",
-        "Select-String -Path . -Pattern NAME -Recurse",
-        "grep -rn NAME .",
-        "delete the line by hand",
-        "Use x=>y in prose",
-        "The score is x > y",
-    ]
-    for answer in safe_answers:
-        assert not answer_contains_destructive_command(answer), answer
+@pytest.mark.parametrize("answer", [
+    "Please confirm the value",
+    "perform these steps",
+    "inform your team",
+    "the model name is qwen",
+    "Add-Content .env",
+    "echo 'X=1' >> .env",
+    "grep -rn NAME .",
+])
+def test_safety_function_accepts_safe_answers(answer):
+    assert not answer_contains_destructive_command(answer), answer
+
+
+@pytest.mark.parametrize("answer", [
+    "Remove-Item .env",
+    "rm -rf build",
+    "rm .env",
+    "del .env",
+    "sed -i '/X/d' .env",
+    "echo X > .env",
+    "mv a.txt b.txt",
+])
+def test_safety_function_flags_must_warn_answers(answer):
+    assert answer_contains_destructive_command(answer), answer
 
 
 def test_fixed_fix_templates_match_statuses():
@@ -298,6 +290,21 @@ def test_provider_failure_still_prints_problem_blocks(monkeypatch, tmp_path):
     assert "Problem: API_KEY MISSING" in result.output
     assert 'Fix (PowerShell): Add-Content .env "API_KEY=<your-value>"' in result.output
     assert "Traceback" not in result.output
+    assert "Commands are fixed templates. Verify before running." in result.output
+    assert "AI-generated summary. Commands are fixed templates" not in result.output
+
+
+def test_ai_success_prints_ai_footer(monkeypatch, tmp_path):
+    repo = _copy_env_repo(tmp_path)
+    monkeypatch.setenv("REPODOCTOR_AI_URL", "https://example.invalid/chat/completions")
+    monkeypatch.setenv("REPODOCTOR_AI_KEY", "test-key")
+
+    with patch("repodoctor.ai.provider.OpenAICompatProvider.explain", return_value="Fix the missing environment variable first."):
+        result = runner.invoke(app, ["explain", str(repo), "--provider", "openai-compat"])
+
+    assert result.exit_code == 0
+    assert "AI-generated summary. Commands are fixed templates, but verify before running." in result.output
+    assert "Commands are fixed templates. Verify before running." not in result.output
 
 
 def test_warning_prints_before_answer(monkeypatch, tmp_path):

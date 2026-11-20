@@ -23,6 +23,8 @@ def root():
 def check(
     path: str = typer.Argument(".", help="Path to check"),
     json: Annotated[bool, typer.Option("--json", help="Output JSON only")] = False,
+    html: Path = typer.Option(None, "--html", help="Write a self-contained HTML report"),
+    force: bool = typer.Option(False, "--force", help="Overwrite an existing HTML report"),
 ):
     path_obj = Path(path)
     if not path_obj.exists():
@@ -46,10 +48,30 @@ def check(
 
     result = run_check(path_obj)
 
+    if html is not None:
+        if html.exists() and not force:
+            from rich.console import Console
+            Console().print(f"[red]Error: Output file '{html}' already exists. Use --force to overwrite.[/red]")
+            raise typer.Exit(code=1)
+        try:
+            from repodoctor.check import format_result_html
+            html.write_text(format_result_html(result), encoding="utf-8")
+        except OSError as exc:
+            from rich.console import Console
+            Console().print(f"[red]Error: Could not write HTML report: {exc}[/red]")
+            raise typer.Exit(code=1)
+
     if json:
         print(format_result_json(result))
+    elif not result.requirements and not result.env:
+        print("Nothing to check in this folder.")
+        if not (path_obj / ".venv").is_dir() and not (path_obj / "venv").is_dir():
+            print("Package check skipped: no .venv or venv folder found in this folder.")
+        raise typer.Exit(code=0)
     else:
         format_result_rich(result)
+        if not (path_obj / ".venv").is_dir() and not (path_obj / "venv").is_dir():
+            print("Package check skipped: no .venv or venv folder found in this folder.")
 
     raise typer.Exit(code=0 if result.ok else 1)
 
@@ -134,7 +156,10 @@ def explain(
             if "note" in template:
                 print(template["note"])
 
-    print("AI-generated summary. Commands are fixed templates, but verify before running.")
+    if answer:
+        print("AI-generated summary. Commands are fixed templates, but verify before running.")
+    else:
+        print("Commands are fixed templates. Verify before running.")
     raise typer.Exit(code=0)
 
 

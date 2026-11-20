@@ -26,7 +26,7 @@ def _copy_env_repo(tmp_path: Path) -> Path:
 def test_check_existing_folder(tmp_path: Path):
     result = runner.invoke(app, ["check", str(tmp_path)])
     assert result.exit_code == 0
-    assert "Requirements" in result.output
+    assert "Nothing to check in this folder." in result.output
 
 
 def test_check_nonexistent_path():

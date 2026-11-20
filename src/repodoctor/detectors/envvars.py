@@ -13,18 +13,26 @@ import re
 from pathlib import Path
 
 
-SKIP_DIRS = {".git", "node_modules", ".venv", "venv", "dist", "build", "__pycache__"}
+SKIP_DIRS = {".git", "node_modules", ".venv", "venv", "dist", "build", "__pycache__", "vendor", "target", ".next", "coverage", ".tox"}
 MAX_FILE_SIZE = 1_048_576  # 1 MB
 
-ENV_SOURCE_EXTS = {".py", ".js", ".jsx", ".ts", ".tsx", ".mjs"}
+ENV_SOURCE_EXTS = {".py", ".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs", ".go", ".java", ".rb", ".rs"}
 
+NAME = r"([A-Z][A-Z0-9_]*)"
 ENV_PATTERNS = [
-    r'os\.environ\["([A-Z_][A-Z0-9_]*)"\]',
-    r'os\.environ\.get\("([A-Z_][A-Z0-9_]*)"\)',
-    r'os\.getenv\("([A-Z_][A-Z0-9_]*)"\)',
-    r'process\.env\.([A-Z_][A-Z0-9_]*)',
-    r'process\.env\["([A-Z_][A-Z0-9_]*)"\]',
-    r'import\.meta\.env\.([A-Z_][A-Z0-9_]*)',
+    rf'os\.environ\s*\[["\']{NAME}["\']\]',
+    rf'os\.environ\.get\s*\(["\']{NAME}["\']',
+    rf'os\.getenv\s*\(["\']{NAME}["\']',
+    rf'os\.environ\.setdefault\s*\(["\']{NAME}["\']',
+    rf'process\.env\.\s*{NAME}\b',
+    rf'process\.env\s*\[["\'`]{NAME}["\'`]\]',
+    rf'import\.meta\.env\.\s*{NAME}\b',
+    rf'os\.Getenv\s*\(["\']{NAME}["\']',
+    rf'os\.LookupEnv\s*\(["\']{NAME}["\']',
+    rf'System\.getenv\s*\(["\']{NAME}["\']',
+    rf'ENV\s*\[["\']{NAME}["\']\]',
+    rf'ENV\.fetch\s*\(["\']{NAME}["\']',
+    rf'(?:env|std::env)::var\s*\(["\']{NAME}["\']',
 ]
 
 
@@ -60,7 +68,7 @@ def _scan_code_for_env_vars(path: Path) -> dict[str, set[str]]:
 
     Returns a dict mapping variable name to set of relative source file paths.
     Only matches UPPER_SNAKE_CASE names.
-    Skips .git, node_modules, .venv, venv, dist, build, __pycache__.
+    Skips .git, node_modules, .venv, venv, dist, build, __pycache__, vendor, target, .next, coverage, and .tox.
     Skips files larger than 1 MB.
     """
     used: dict[str, set[str]] = {}
@@ -87,6 +95,16 @@ def _scan_code_for_env_vars(path: Path) -> dict[str, set[str]]:
                 for match in re.finditer(pattern, content):
                     var_name = match.group(1)
                     used.setdefault(var_name, set()).add(rel_path)
+
+            if fpath.suffix in {".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs"}:
+                for destructuring in re.finditer(r"const\s*\{([^}]*)\}\s*=\s*process\.env\b", content):
+                    for part in destructuring.group(1).split(","):
+                        entry = part.strip()
+                        if not entry:
+                            continue
+                        source_name = entry.split(":", 1)[0].strip().split("=", 1)[0].strip()
+                        if re.fullmatch(r"[A-Z][A-Z0-9_]*", source_name):
+                            used.setdefault(source_name, set()).add(rel_path)
 
     return used
 

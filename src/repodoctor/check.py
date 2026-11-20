@@ -23,6 +23,7 @@ from repodoctor.detectors.python import detect as detect_python
 from repodoctor.detectors.docker import detect as detect_docker
 from repodoctor.detectors.ports import detect as detect_ports
 from repodoctor.models import Requirement
+from packaging.utils import canonicalize_name
 
 
 @dataclass
@@ -158,6 +159,70 @@ def run_check(path: Path) -> CheckResult:
             )
         )
 
+    # --- Python packages from requirements.txt and a local venv ---
+    from repodoctor.packages import find_venv, parse_installed_packages, parse_requirements
+
+    package_problem_count = 0
+    package_total = 0
+    package_venv = find_venv(path)
+    if package_venv is not None:
+        installed_packages = parse_installed_packages(package_venv)
+        parsed_requirements = parse_requirements(path)
+        package_total = len(parsed_requirements)
+        ok_packages = 0
+
+        for requirement in parsed_requirements:
+            name = canonicalize_name(requirement.name)
+            display_name = requirement.name
+            installed_version = installed_packages.get(name)
+
+            if installed_version is None:
+                status = "MISSING"
+                installed = None
+                has_failure = True
+                package_problem_count += 1
+            else:
+                installed = installed_version
+                specifier = requirement.specifier
+                if not str(specifier):
+                    status = "OK"
+                    ok_packages += 1
+                else:
+                    try:
+                        satisfied = specifier.contains(installed_version, prereleases=True)
+                    except Exception:
+                        status = "UNKNOWN"
+                    else:
+                        if satisfied:
+                            status = "OK"
+                            ok_packages += 1
+                        else:
+                            status = "VERSION MISMATCH"
+                            has_failure = True
+                            package_problem_count += 1
+
+            if status != "OK":
+                requirement_results.append(
+                    RequirementResult(
+                        tool=f"pip: {display_name}",
+                        required=str(requirement.specifier) or None,
+                        installed=installed,
+                        status=status,
+                        found_in=["requirements.txt"],
+                    )
+                )
+
+        if package_problem_count == 0:
+            requirement_results.append(
+                RequirementResult(
+                    tool="python packages",
+                    required=f"{ok_packages} of {package_total} OK",
+                    installed=None,
+                    status="OK",
+                    found_in=["requirements.txt"],
+                )
+            )
+
     # --- Environment variables ---
     env_detection = detect_envvars(path)
     env_results = compute_env_results(env_detection)
@@ -210,6 +275,103 @@ def run_check(path: Path) -> CheckResult:
     )
 
 
+def format_result_html(result: CheckResult) -> str:
+    """Render a self-contained HTML report, escaping every dynamic value."""
+    import html
+
+    def esc(value) -> str:
+        return html.escape("" if value is None else str(value), quote=True)
+
+    ok_count = sum(req.status == "OK" for req in result.requirements)
+    warning_statuses = {"UNDOCUMENTED", "UNUSED", "UNKNOWN"}
+    failure_statuses = {"MISSING", "NOT RUNNING", "VERSION MISMATCH", "PORT IN USE"}
+    warning_count = sum(req.status in warning_statuses for req in result.requirements)
+    warning_count += sum(env.status in warning_statuses for env in result.env)
+    failure_count = sum(req.status in failure_statuses for req in result.requirements)
+    failure_count += sum(env.status in failure_statuses for env in result.env)
+
+    def badge(status: str) -> str:
+        safe_status = esc(status)
+        if status == "OK":
+            cls = "ok"
+        elif status in failure_statuses or status == "MISSING":
+            cls = "failure"
+        else:
+            cls = "warning"
+        return f'<span class="badge {cls}">{safe_status}</span>'
+
+    requirement_rows = "".join(
+        "<tr>"
+        f"<td>{esc(req.tool)}</td>"
+        f"<td>{esc(req.required if req.required is not None else '-')}</td>"
+        f"<td>{esc(req.installed if req.installed is not None else '-')}</td>"
+        f"<td>{badge(req.status)}</td>"
+        f"<td>{esc(', '.join(req.found_in))}</td>"
+        "</tr>"
+        for req in result.requirements
+    )
+    env_rows = "".join(
+        "<tr>"
+        f"<td>{esc(env.variable)}</td>"
+        f"<td>{badge(env.status)}</td>"
+        f"<td>{esc(env.where)}</td>"
+        "</tr>"
+        for env in result.env
+    )
+
+    requirements_section = ""
+    if result.requirements:
+        requirements_section = (
+            "<h2>Requirements</h2>"
+            '<table><thead><tr><th>Tool</th><th>Required</th><th>Installed</th><th>Status</th><th>Found in</th></tr></thead>'
+            f"<tbody>{requirement_rows}</tbody></table>"
+        )
+
+    env_section = ""
+    if result.env:
+        env_section = (
+            "<h2>Environment variables</h2>"
+            "<table><thead><tr><th>Variable</th><th>Status</th><th>Where</th></tr></thead>"
+            f"<tbody>{env_rows}</tbody></table>"
+        )
+
+    if not result.requirements and not result.env:
+        content = '<p class="clean">Nothing to check in this folder.</p>'
+    else:
+        content = requirements_section + env_section
+
+    folder_name = esc(Path(result.path).name or ".")
+    return f"""<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>repodoctor report - {folder_name}</title>
+<style>
+:root {{ --bg:#ffffff; --text:#172033; --panel:#f6f8fa; --border:#d0d7de; --ok:#16794f; --ok-bg:#daf5e7; --failure:#b42318; --failure-bg:#fee4e2; --warning:#9a6700; --warning-bg:#fff1b8; }}
+@media (prefers-color-scheme: dark) {{ :root {{ --bg:#0d1117; --text:#e6edf3; --panel:#161b22; --border:#30363d; --ok:#3fb950; --ok-bg:#193c2b; --failure:#ff7b72; --failure-bg:#4a1f1f; --warning:#e3b341; --warning-bg:#4a3a18; }} }}
+body {{ margin:0; padding:24px; background:var(--bg); color:var(--text); font-family:system-ui,-apple-system,"Segoe UI",sans-serif; }}
+main {{ max-width:1100px; margin:auto; }}
+h1 {{ font-size:1.6rem; }}
+.summary {{ background:var(--panel); border:1px solid var(--border); padding:12px; border-radius:8px; }}
+table {{ width:100%; border-collapse:collapse; margin:16px 0 24px; }}
+th, td {{ border:1px solid var(--border); padding:8px; text-align:left; }}
+th {{ background:var(--panel); }}
+.badge {{ display:inline-block; padding:2px 8px; border-radius:999px; font-weight:700; }}
+.badge.ok {{ color:var(--ok); background:var(--ok-bg); }}
+.badge.failure {{ color:var(--failure); background:var(--failure-bg); }}
+.badge.warning {{ color:var(--warning); background:var(--warning-bg); }}
+</style>
+</head>
+<body><main>
+<h1>repodoctor report: {folder_name}</h1>
+<p class="summary">Summary: {ok_count} OK, {warning_count} warnings, {failure_count} failures</p>
+{content}
+</main></body>
+</html>
+"""
+
+
 def format_result_rich(result: CheckResult) -> None:
     """Print a CheckResult using Rich tables."""
     from rich.console import Console
@@ -233,7 +395,8 @@ def format_result_rich(result: CheckResult) -> None:
             ", ".join(req.found_in),
         )
 
-    console.print(table)
+    if result.requirements:
+        console.print(table)
 
     if result.env:
         env_table = Table(title="Environment variables")
