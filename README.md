@@ -148,6 +148,7 @@ Fix commands come from fixed templates in the code, not from the model. The mode
 | Check | Looks at | Example result |
 | --- | --- | --- |
 | Node | `package.json` (`engines.node`), `.nvmrc`, `.node-version` | `node \| >=18 \| v16.0.0 \| VERSION MISMATCH \| package.json` |
+| Node packages | `dependencies` and `devDependencies` from the top-level `package.json` compared with `package.json` files in `node_modules` | `npm: express \| ^4.0.0 \| 3.0.0 \| VERSION MISMATCH`; `node packages \| 5 of 5 OK` only when no package is `MISSING` or `VERSION MISMATCH` |
 | Python runtime | `pyproject.toml` (`requires-python`), `.python-version`, `requirements.txt` | `python \| >=3.10 \| 3.9.0 \| VERSION MISMATCH \| pyproject.toml` |
 | Python packages | Top-level `requirements.txt` compared with `*.dist-info` folder names in an inside-folder `.venv` or `venv` | `pip: flask \| >=3.0 \| 2.9.0 \| VERSION MISMATCH \| requirements.txt`; `python packages \| 5 of 5 OK` only when no package is `MISSING` or `VERSION MISMATCH` |
 | Docker and compose | `Dockerfile`, `docker-compose.yml`, `docker-compose.yaml`, `compose.yml`, `compose.yaml` | `docker \| - \| - \| MISSING \| Dockerfile, docker-compose.yml` |
@@ -172,7 +173,8 @@ Fix commands come from fixed templates in the code, not from the model. The mode
 
 - A port reported as `PORT IN USE` may belong to the project's own service already running, since repodoctor can't tell who is using it.
 - Environment variable detection recognizes UPPER_SNAKE_CASE names in Python (`os.environ`, `os.environ.get`, `os.getenv`, `os.environ.setdefault`), JavaScript/TypeScript (`process.env`, bracket access, `import.meta.env`, and object destructuring), Go (`os.Getenv`, `os.LookupEnv`), Java (`System.getenv`), Ruby (`ENV`, `ENV.fetch`), and Rust (`env::var`, `std::env::var`).
-- Python package checking only reads top-level `requirements.txt`; it does not read dependencies from `pyproject.toml`. It only searches an inside-folder `.venv` or `venv`, reads `*.dist-info` folder names, and never runs the venv's Python or pip executable. There is no Node package dependency check yet.
+- Python package checking only reads top-level `requirements.txt`; it does not read dependencies from `pyproject.toml`. It only searches an inside-folder `.venv` or `venv`, reads `*.dist-info` folder names, and never runs the venv's Python or pip executable.
+- Node package checking reads `dependencies` and `devDependencies` from the top-level `package.json`, compares them with `node_modules` by reading files, and never runs npm or node. It does not read lockfiles, does not support workspaces or monorepos, and skips specs that are not semver ranges.
 - Docker version is not checked; repodoctor only checks whether Docker is installed, whether it is running, and whether Compose is available.
 - Monorepos are scanned as one folder; there is no per-package analysis.
 - Not tested on macOS. CI runs Ubuntu and Windows.

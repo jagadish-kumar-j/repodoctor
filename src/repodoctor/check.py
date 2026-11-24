@@ -223,6 +223,74 @@ def run_check(path: Path) -> CheckResult:
                 )
             )
 
+    # --- Node packages from package.json and node_modules ---
+    from repodoctor.node_packages import check_node_packages, get_dependencies, is_safe_node_name, read_installed_version
+    from repodoctor.checkers.versions import satisfies as _node_satisfies
+
+    node_dependency_data = check_node_packages(path)
+    node_dependencies, has_package_json = node_dependency_data
+    node_modules = path / "node_modules"
+    if has_package_json and node_dependencies:
+        if not node_modules.is_dir():
+            print("Node package check skipped: no node_modules folder found in this folder.")
+        else:
+            node_problem_count = 0
+            node_total = 0
+            node_evaluable_total = 0
+            node_ok = 0
+            node_skipped = 0
+
+            for raw_name, spec in node_dependencies.items():
+                if not is_safe_node_name(raw_name):
+                    continue
+                node_total += 1
+                installed_version = read_installed_version(path, raw_name)
+                if installed_version is None:
+                    status = "MISSING"
+                    installed = None
+                    has_failure = True
+                    node_problem_count += 1
+                else:
+                    installed = installed_version
+                    sat = _node_satisfies(installed_version, str(spec))
+                    if sat is None:
+                        status = "UNKNOWN"
+                        node_skipped += 1
+                    elif sat:
+                        status = "OK"
+                        node_ok += 1
+                        node_evaluable_total += 1
+                    else:
+                        status = "VERSION MISMATCH"
+                        has_failure = True
+                        node_problem_count += 1
+                        node_evaluable_total += 1
+
+                if status != "OK":
+                    requirement_results.append(
+                        RequirementResult(
+                            tool=f"npm: {raw_name}",
+                            required=str(spec) if spec is not None else None,
+                            installed=installed,
+                            status=status,
+                            found_in=["package.json"],
+                        )
+                    )
+
+            if node_problem_count == 0:
+                required_text = f"{node_ok} of {node_evaluable_total} OK"
+                if node_skipped > 0:
+                    required_text += f", {node_skipped} skipped"
+                requirement_results.append(
+                    RequirementResult(
+                        tool="node packages",
+                        required=required_text,
+                        installed=None,
+                        status="OK",
+                        found_in=["package.json"],
+                    )
+                )
+
     # --- Environment variables ---
     env_detection = detect_envvars(path)
     env_results = compute_env_results(env_detection)

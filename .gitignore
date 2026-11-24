@@ -10,3 +10,5 @@ build/
 .venv*/
 
 report.html
+
+uv.lock

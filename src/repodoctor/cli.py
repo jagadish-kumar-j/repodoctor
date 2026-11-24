@@ -67,11 +67,15 @@ def check(
         print("Nothing to check in this folder.")
         if not (path_obj / ".venv").is_dir() and not (path_obj / "venv").is_dir():
             print("Package check skipped: no .venv or venv folder found in this folder.")
+        if (path_obj / "package.json").is_file() and not (path_obj / "node_modules").is_dir():
+            print("Node package check skipped: no node_modules folder found in this folder.")
         raise typer.Exit(code=0)
     else:
         format_result_rich(result)
         if not (path_obj / ".venv").is_dir() and not (path_obj / "venv").is_dir():
             print("Package check skipped: no .venv or venv folder found in this folder.")
+        if (path_obj / "package.json").is_file() and not (path_obj / "node_modules").is_dir():
+            print("Node package check skipped: no node_modules folder found in this folder.")
 
     raise typer.Exit(code=0 if result.ok else 1)
 
